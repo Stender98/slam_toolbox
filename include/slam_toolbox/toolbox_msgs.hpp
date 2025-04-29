@@ -30,6 +30,7 @@
 #include "visualization_msgs/msg/interactive_marker_feedback.hpp"
 
 #include "slam_toolbox/srv/pause.hpp"
+#include "slam_toolbox/srv/reset.hpp"
 #include "slam_toolbox/srv/clear_queue.hpp"
 #include "slam_toolbox/srv/toggle_interactive.hpp"
 #include "slam_toolbox/srv/clear.hpp"
@@ -39,5 +40,6 @@
 #include "slam_toolbox/srv/deserialize_pose_graph.hpp"
 #include "slam_toolbox/srv/merge_maps.hpp"
 #include "slam_toolbox/srv/add_submap.hpp"
+#include "slam_toolbox/msg/localized_laser_scan.hpp"
 
 #endif  // SLAM_TOOLBOX__TOOLBOX_MSGS_HPP_

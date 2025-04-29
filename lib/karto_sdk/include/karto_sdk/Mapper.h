@@ -32,7 +32,7 @@
 #include "tbb/blocked_range.h"
 
 #include "Eigen/Core"
-#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_lifecycle/lifecycle_node.hpp"
 #include "Karto.h"  // NOLINT
 #include "nanoflann_adaptors.h"  // NOLINT
 
@@ -979,7 +979,7 @@ public:
    */
   virtual void Compute() = 0;
 
-  virtual void Configure(rclcpp::Node::SharedPtr node) = 0;
+  virtual void Configure(rclcpp_lifecycle::LifecycleNode::SharedPtr node) = 0;
 
   /**
    * Get corrected poses after optimization
@@ -2357,13 +2357,6 @@ protected:
   // whether to increase the search space if no good matches are initially found
   Parameter<kt_bool> * m_pUseResponseExpansion;
 
-  // Number of beams that must pass through a cell before it will be considered to be occupied 
-  // or unoccupied.  This prevents stray beams from messing up the map. 
-  Parameter<kt_int32u> * m_pMinPassThrough;
-
-  // Minimum ratio of beams hitting cell to beams passing through cell to be marked as occupied
-  Parameter<kt_double> * m_pOccupancyThreshold;
-
   friend class boost::serialization::access;
   template<class Archive>
   void serialize(Archive & ar, const unsigned int version)
@@ -2408,9 +2401,6 @@ protected:
     ar & BOOST_SERIALIZATION_NVP(m_pMinimumAnglePenalty);
     ar & BOOST_SERIALIZATION_NVP(m_pMinimumDistancePenalty);
     ar & BOOST_SERIALIZATION_NVP(m_pUseResponseExpansion);
-// NOTE: the following two lines are commented out to avoid breaking the serialization of already existing maps
-//    ar & BOOST_SERIALIZATION_NVP(m_pMinPassThrough); 
-//    ar & BOOST_SERIALIZATION_NVP(m_pOccupancyThreshold);
     std::cout << "**Finished serializing Mapper**\n";
   }
 
@@ -2454,8 +2444,6 @@ public:
   double getParamMinimumAnglePenalty();
   double getParamMinimumDistancePenalty();
   bool getParamUseResponseExpansion();
-  int getParamMinPassThrough();
-  double getParamOccupancyThreshold();
 
   /* Setters */
   // General Parameters
@@ -2494,8 +2482,6 @@ public:
   void setParamMinimumAnglePenalty(double d);
   void setParamMinimumDistancePenalty(double d);
   void setParamUseResponseExpansion(bool b);
-  void setParamMinPassThrough(int i);
-  void setParamOccupancyThreshold(double d);
 };
 BOOST_SERIALIZATION_ASSUME_ABSTRACT(Mapper)
 }  // namespace karto

@@ -25,6 +25,10 @@ find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(lifecycle_msgs REQUIRED)
+find_package(bondcpp REQUIRED)
+find_package(bond REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
 find_package(rviz_common REQUIRED)
 find_package(rviz_default_plugins REQUIRED)
 find_package(rviz_ogre_vendor REQUIRED)
@@ -53,6 +57,10 @@ set(dependencies
   std_msgs
   std_srvs
   builtin_interfaces
+  rclcpp_lifecycle
+  bondcpp
+  bond
+  lifecycle_msgs
   rviz_common
   rviz_default_plugins
   rviz_ogre_vendor
@@ -66,6 +74,7 @@ set(libraries
     toolbox_common
     SlamToolboxPlugin
     ceres_solver_plugin
+    multirobot_slam_toolbox
     async_slam_toolbox
     sync_slam_toolbox
     localization_slam_toolbox
@@ -89,24 +98,25 @@ include_directories(include lib/karto_sdk/include
                             ${EIGEN3_INCLUDE_DIRS}
                             ${CHOLMOD_INCLUDE_DIR}
                             ${Boost_INCLUDE_DIRS}
-                            ${TBB_INCLUDE_DIRS}
                             ${CERES_INCLUDES}
 )
 
 add_definitions(${EIGEN3_DEFINITIONS})
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  srv/Pause.srv
-  srv/ClearQueue.srv
-  srv/ToggleInteractive.srv
-  srv/Clear.srv
-  srv/SaveMap.srv
-  srv/LoopClosure.srv
-  srv/MergeMaps.srv
-  srv/AddSubmap.srv
-  srv/DeserializePoseGraph.srv
-  srv/SerializePoseGraph.srv
-  DEPENDENCIES builtin_interfaces geometry_msgs std_msgs nav_msgs visualization_msgs
+  msg/LocalizedLaserScan.msg
+  srvs/Pause.srv
+  srvs/Reset.srv
+  srvs/ClearQueue.srv
+  srvs/ToggleInteractive.srv
+  srvs/Clear.srv
+  srvs/SaveMap.srv
+  srvs/LoopClosure.srv
+  srvs/MergeMaps.srv
+  srvs/AddSubmap.srv
+  srvs/DeserializePoseGraph.srv
+  srvs/SerializePoseGraph.srv
+  DEPENDENCIES builtin_interfaces geometry_msgs std_msgs nav_msgs visualization_msgs sensor_msgs
 )
 
 #### rviz Plugin
@@ -126,14 +136,13 @@ rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typ
 target_link_libraries(SlamToolboxPlugin "${cpp_typesupport_target}")
 target_compile_definitions(SlamToolboxPlugin PUBLIC "PLUGINLIB__DISABLE_BOOST_FUNCTIONS")
 target_compile_definitions(SlamToolboxPlugin PRIVATE "RVIZ_DEFAULT_PLUGINS_BUILDING_LIBRARY")
-pluginlib_export_plugin_description_file(rviz_common rviz_plugins.xml) 
+pluginlib_export_plugin_description_file(rviz_common rviz_plugins.xml)
 
 #### Ceres Plugin
 add_library(ceres_solver_plugin solvers/ceres_solver.cpp)
 ament_target_dependencies(ceres_solver_plugin ${dependencies})
 target_link_libraries(ceres_solver_plugin ${CERES_LIBRARIES}
                                           ${Boost_LIBRARIES}
-                                          ${TBB_LIBRARIES}
                                           kartoSlamToolbox
 )
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
@@ -150,6 +159,11 @@ rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typ
 target_link_libraries(toolbox_common "${cpp_typesupport_target}")
 
 #### Mapping executibles
+add_library(multirobot_slam_toolbox src/slam_toolbox_multirobot.cpp)
+target_link_libraries(multirobot_slam_toolbox toolbox_common kartoSlamToolbox ${Boost_LIBRARIES})
+add_executable(multirobot_slam_toolbox_node src/slam_toolbox_multirobot_node.cpp)
+target_link_libraries(multirobot_slam_toolbox_node multirobot_slam_toolbox)
+
 add_library(async_slam_toolbox src/slam_toolbox_async.cpp)
 target_link_libraries(async_slam_toolbox toolbox_common kartoSlamToolbox ${Boost_LIBRARIES})
 add_executable(async_slam_toolbox_node src/slam_toolbox_async_node.cpp)
@@ -196,10 +210,12 @@ rclcpp_components_register_nodes(lifelong_slam_toolbox "slam_toolbox::LifelongSl
 rclcpp_components_register_nodes(map_and_localization_slam_toolbox "slam_toolbox::MapAndLocalizationSlamToolbox")
 
 #### Install
-install(TARGETS async_slam_toolbox_node
+install(TARGETS multirobot_slam_toolbox_node
+                async_slam_toolbox_node
                 sync_slam_toolbox_node
                 localization_slam_toolbox_node
                 map_and_localization_slam_toolbox_node
+                lifelong_slam_toolbox_node
                 merge_maps_kinematic
                 ${libraries}
                 kartoSlamToolbox

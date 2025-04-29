@@ -66,7 +66,7 @@ karto::OccupancyGrid * SMapper::getOccupancyGrid(const double & resolution)
   karto::OccupancyGrid * occ_grid = nullptr;
   return karto::OccupancyGrid::CreateFromScans(
     mapper_->GetAllProcessedScans(),
-    resolution, (kt_int32u)mapper_->getParamMinPassThrough(), (kt_double)mapper_->getParamOccupancyThreshold());
+    resolution);
 }
 
 /*****************************************************************************/
@@ -93,7 +93,8 @@ karto::Pose2 SMapper::toKartoPose(const tf2::Transform & pose) const
 }
 
 /*****************************************************************************/
-void SMapper::configure(const rclcpp::Node::SharedPtr & node)
+template<class NodeT>
+void SMapper::configure(const NodeT & node)
 /*****************************************************************************/
 {
   bool use_scan_matching = true;
@@ -354,21 +355,6 @@ void SMapper::configure(const rclcpp::Node::SharedPtr & node)
   }
   node->get_parameter("use_response_expansion", use_response_expansion);
   mapper_->setParamUseResponseExpansion(use_response_expansion);
-
-
-  int min_pass_through = 2;
-  if (!node->has_parameter("min_pass_through")) {
-    node->declare_parameter("min_pass_through", min_pass_through);
-  }
-  node->get_parameter("min_pass_through", min_pass_through);
-  mapper_->setParamMinPassThrough(min_pass_through);
-
-  double occupancy_threshold = 0.1;
-  if (!node->has_parameter("occupancy_threshold")) {
-    node->declare_parameter("occupancy_threshold", occupancy_threshold);
-  }
-  node->get_parameter("occupancy_threshold", occupancy_threshold);
-  mapper_->setParamOccupancyThreshold(occupancy_threshold);
 }
 
 /*****************************************************************************/
@@ -377,5 +363,9 @@ void SMapper::Reset()
 {
   mapper_->Reset();
 }
+
+// explicit instantiation for the supported template types
+template void SMapper::configure(const rclcpp::Node::SharedPtr &);
+template void SMapper::configure(const rclcpp_lifecycle::LifecycleNode::SharedPtr &);
 
 }  // namespace mapper_utils

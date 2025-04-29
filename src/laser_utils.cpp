@@ -68,11 +68,12 @@ void LaserMetadata::invertScan(sensor_msgs::msg::LaserScan & scan) const
   scan.intensities = temp.intensities;
 }
 
-
+template<class NodeT>
 LaserAssistant::LaserAssistant(
-  rclcpp::Node::SharedPtr node,
+  NodeT node,
   tf2_ros::Buffer * tf, const std::string & base_frame)
-: node_(node), tf_(tf), base_frame_(base_frame)
+: logger_(node->get_logger()), parameters_interface_(node->get_node_parameters_interface()),
+  tf_(tf), base_frame_(base_frame)
 {
 }
 
@@ -84,6 +85,14 @@ LaserMetadata LaserAssistant::toLaserMetadata(sensor_msgs::msg::LaserScan scan)
 {
   scan_ = scan;
   frame_ = scan_.header.frame_id;
+  return toLaserMetadata(scan, readLaserPose());
+}
+
+LaserMetadata LaserAssistant::toLaserMetadata(sensor_msgs::msg::LaserScan scan, geometry_msgs::msg::TransformStamped laser_pose)
+{
+  scan_ = scan;
+  frame_ = scan_.header.frame_id;
+  laser_pose_ = laser_pose;
 
   double mountingYaw;
   bool inverted = isInverted(mountingYaw);
@@ -94,27 +103,32 @@ LaserMetadata LaserAssistant::toLaserMetadata(sensor_msgs::msg::LaserScan scan)
 
 karto::LaserRangeFinder * LaserAssistant::makeLaser(const double & mountingYaw)
 {
+  std::string laser_namespace = scan_.header.frame_id.substr(0, scan_.header.frame_id.find('/'));
   karto::LaserRangeFinder * laser =
     karto::LaserRangeFinder::CreateLaserRangeFinder(
-    karto::LaserRangeFinder_Custom, karto::Name("Custom Described Lidar"));
+    karto::LaserRangeFinder_Custom, karto::Name("Custom Described Lidar : " + laser_namespace));
   laser->SetOffsetPose(karto::Pose2(laser_pose_.transform.translation.x,
     laser_pose_.transform.translation.y, mountingYaw));
-
+  
   double min_laser_range = 0.0;
-  if (!node_->has_parameter("min_laser_range")) {
-    node_->declare_parameter("min_laser_range", min_laser_range);
+  if (!parameters_interface_->has_parameter("min_laser_range")) {
+    parameters_interface_->declare_parameter(
+      "min_laser_range",
+      rclcpp::ParameterValue(min_laser_range));
   }
-  node_->get_parameter("min_laser_range", min_laser_range);
+  min_laser_range = parameters_interface_->get_parameter("min_laser_range").as_double();
 
   if (min_laser_range < 0) {
-    RCLCPP_WARN(node_->get_logger(),
+    RCLCPP_WARN(
+      logger_,
       "You've set minimum laser range to be negative,"
       "this isn't allowed so it will be set to (%.1f).", scan_.range_min);
     min_laser_range = scan_.range_min;
   }
 
   if (min_laser_range < scan_.range_min) {
-    RCLCPP_WARN(node_->get_logger(),
+    RCLCPP_WARN(
+      logger_,
       "minimum laser range setting (%.1f m) exceeds the capabilities "
       "of the used Lidar (%.1f m)", min_laser_range, scan_.range_min);
     min_laser_range = scan_.range_min;
@@ -141,20 +155,24 @@ karto::LaserRangeFinder * LaserAssistant::makeLaser(const double & mountingYaw)
   laser->SetIs360Laser(is_360_lidar);
 
   double max_laser_range = 25;
-  if (!node_->has_parameter("max_laser_range")) {
-    node_->declare_parameter("max_laser_range", max_laser_range);
+  if (!parameters_interface_->has_parameter("max_laser_range")) {
+    parameters_interface_->declare_parameter(
+      "max_laser_range",
+      rclcpp::ParameterValue(max_laser_range));
   }
-  node_->get_parameter("max_laser_range", max_laser_range);
+  max_laser_range = parameters_interface_->get_parameter("max_laser_range").as_double();
 
   if (max_laser_range <= 0) {
-    RCLCPP_WARN(node_->get_logger(),
+    RCLCPP_WARN(
+      logger_,
       "You've set maximum_laser_range to be negative,"
       "this isn't allowed so it will be set to (%.1f).", scan_.range_max);
     max_laser_range = scan_.range_max;
   }
 
   if (max_laser_range > scan_.range_max) {
-    RCLCPP_WARN(node_->get_logger(),
+    RCLCPP_WARN(
+      logger_,
       "maximum laser range setting (%.1f m) exceeds the capabilities "
       "of the used Lidar (%.1f m)", max_laser_range, scan_.range_max);
     max_laser_range = scan_.range_max;
@@ -165,32 +183,39 @@ karto::LaserRangeFinder * LaserAssistant::makeLaser(const double & mountingYaw)
 
 bool LaserAssistant::isInverted(double & mountingYaw)
 {
+  mountingYaw = tf2::getYaw(laser_pose_.transform.rotation);
+
+  RCLCPP_DEBUG(
+    logger_, "laser %s's pose wrt base: %.3f %.3f %.3f %.3f",
+    frame_.c_str(), laser_pose_.transform.translation.x,
+    laser_pose_.transform.translation.y,
+    laser_pose_.transform.translation.z, mountingYaw);
+
+    tf2::Vector3 laser_orient;
+    tf2::Transform laser_pose;
+    tf2::convert(laser_pose_.transform, laser_pose);
+    laser_orient.setY(0.);
+    laser_orient.setZ(0.);
+    laser_orient.setZ(1 + laser_pose_.transform.translation.z); // TOOD can remove addition of laser_pose z component
+    laser_orient = laser_pose * laser_orient;
+
+  if (laser_orient.vector.z <= 0) {
+    RCLCPP_DEBUG(
+      logger_, "laser is mounted upside-down");
+    return true;
+  }
+
+  return false;
+}
+
+geometry_msgs::msg::TransformStamped LaserAssistant::readLaserPose()
+{
   geometry_msgs::msg::TransformStamped laser_ident;
   laser_ident.header.stamp = scan_.header.stamp;
   laser_ident.header.frame_id = frame_;
   laser_ident.transform.rotation.w = 1.0;
 
-  laser_pose_ = tf_->transform(laser_ident, base_frame_);
-  mountingYaw = tf2::getYaw(laser_pose_.transform.rotation);
-
-  RCLCPP_DEBUG(node_->get_logger(), "laser %s's pose wrt base: %.3f %.3f %.3f %.3f",
-    frame_.c_str(), laser_pose_.transform.translation.x,
-    laser_pose_.transform.translation.y,
-    laser_pose_.transform.translation.z, mountingYaw);
-
-  geometry_msgs::msg::Vector3Stamped laser_orient;
-  laser_orient.vector.z = laser_orient.vector.y = 0.;
-  laser_orient.vector.z = 1 + laser_pose_.transform.translation.z;
-  laser_orient.header.stamp = scan_.header.stamp;
-  laser_orient.header.frame_id = base_frame_;
-  laser_orient = tf_->transform(laser_orient, frame_);
-
-  if (laser_orient.vector.z <= 0) {
-    RCLCPP_DEBUG(node_->get_logger(), "laser is mounted upside-down");
-    return true;
-  }
-
-  return false;
+  return tf_->transform(laser_ident, base_frame_);
 }
 
 ScanHolder::ScanHolder(std::map<std::string, laser_utils::LaserMetadata> & lasers)
@@ -218,5 +243,11 @@ void ScanHolder::addScan(const sensor_msgs::msg::LaserScan scan)
 {
   current_scans_->push_back(scan);
 }
+
+// explicit instantiation for the supported template types
+template LaserAssistant::LaserAssistant(
+  rclcpp::Node::SharedPtr, tf2_ros::Buffer *, const std::string &);
+template LaserAssistant::LaserAssistant(
+  rclcpp_lifecycle::LifecycleNode::SharedPtr, tf2_ros::Buffer *, const std::string &);
 
 }  // namespace laser_utils

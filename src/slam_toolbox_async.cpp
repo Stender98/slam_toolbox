@@ -53,10 +53,7 @@ void AsynchronousSlamToolbox::laserCallback(
     return;
   }
 
-  // if not paused, process scan
-  if (shouldProcessScan(scan, pose)) {
-    addScan(laser, scan, pose);
-  }
+  addScan(laser, scan, pose);
 }
 
 /*****************************************************************************/

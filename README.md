@@ -1,16 +1,12 @@
 ## Slam Toolbox
 
-| DockerHub  | [![Build Status](https://img.shields.io/docker/cloud/build/stevemacenski/slam-toolbox.svg?label=build)](https://hub.docker.com/r/stevemacenski/slam-toolbox) | [![Build Status](https://img.shields.io/docker/pulls/stevemacenski/slam-toolbox.svg?maxAge=2592000)](https://hub.docker.com/r/stevemacenski/slam-toolbox) |
-|-----|----|----|
-| **Build Farm** | [![Build Status](http://build.ros2.org/job/Ddev__slam_toolbox__ubuntu_bionic_amd64/badge/icon)](http://build.ros2.org/job/Ddev__slam_toolbox__ubuntu_bionic_amd64/) | N/A |
-
 We've received feedback from users and have robots operating in the following environments with SLAM Toolbox:
 - Retail
 - Warehouses
 - Libraries
 - Research
 
-It is also the currently supported ROS2-SLAM library. See tutorials for working with it in [ROS2 Navigation here](https://navigation.ros.org/tutorials/docs/navigation2_with_slam.html).
+It is also the currently supported ROS2-SLAM library. See tutorials for working with it in [ROS 2 Nav2 here](https://docs.nav2.org/tutorials/docs/navigation2_with_slam.html).
 
 ### Cite This Work
 
@@ -47,6 +43,13 @@ The video below was collected at [Circuit Launch](https://www.circuitlaunch.com/
 
 ![map_image](/images/circuit_launch.gif?raw=true "Map Image")
 
+An overview of how the map was generated is presented below:
+![slam_toolbox_sync_diagram](/images/slam_toolbox_sync.png)
+1. ROS Node: SLAM toolbox is run in synchronous mode, which generates a ROS node. This node subscribes to laser scan and odometry topics, and publishes map to odom transform and a map.
+2. Get odometry and LIDAR data: A callback for the laser topic will generate a pose (using odometry) and a laser scan tied at that node. These PosedScan objects form a queue, which are processed by the algorithm.
+3. Process Data: The queue of PosedScan objects are used to construct a pose graph; odometry is refined using laser scan matching. This pose graph is used to compute robot pose, and find loop closures. If a loop closure is found, the pose graph is optimized, and pose estimates are updated. Pose estimates are used to compute and publish a map to odom transform for the robot.
+4. Mapping: Laser scans associated with each pose in the pose graph are used to construct and publish a map.
+
 # Support and Contribution
 
 If you have any questions on use or configuration, please post your questions on [ROS Answers](answers.ros.org) and someone from the community will work their hardest to get back to you. Tangible issues in the codebase or feature requests should be made with GitHub issues.  
@@ -79,7 +82,7 @@ Our lifelong mapping consists of a few key steps
 - KD-Tree search matching to locate the robot in its position on reinitialization
 - pose-graph optimization based SLAM with 2D scan matching abstraction 
 
-This will allow the user to create and update existing maps, then serialize the data for use in other mapping sessions, something sorely lacking from most SLAM implementations and nearly all planar SLAM implementations. Other good libraries that do this include RTab-Map and Cartoprapher, though they themselves have their own quirks that make them (in my opinion) unusable for production robotics applications. This library provides the mechanics to save not only the data, but the pose graph, and associated metadata to work with. This has been used to create maps by merging techniques (taking 2 or more serialized objects and creating 1 globally consistent one) as well as continuous mapping techniques (updating 1, same, serialized map object over time and refining it). The major benefit of this over RTab-Map or Cartoprapher is the maturity of the underlying (but heavily modified) `open_karto` library the project is based on. The scan matcher of Karto is well known as an extremely good matcher for 2D laser scans and modified versions of Karto can be found in companies across the world. 
+This will allow the user to create and update existing maps, then serialize the data for use in other mapping sessions, something sorely lacking from most SLAM implementations and nearly all planar SLAM implementations. Other good libraries that do this include RTab-Map and Cartographer, though they themselves have their own quirks that make them (in my opinion) unusable for production robotics applications. This library provides the mechanics to save not only the data, but the pose graph, and associated metadata to work with. This has been used to create maps by merging techniques (taking 2 or more serialized objects and creating 1 globally consistent one) as well as continuous mapping techniques (updating 1, same, serialized map object over time and refining it). The major benefit of this over RTab-Map or Cartographer is the maturity of the underlying (but heavily modified) `open_karto` library the project is based on. The scan matcher of Karto is well known as an extremely good matcher for 2D laser scans and modified versions of Karto can be found in companies across the world. 
 
 Slam Toolbox supports all the major modes:
 - Starting from a predefined dock (assuming to be near start region)
@@ -107,6 +110,37 @@ To enable, set `mode: localization` in the configuration file to allow for the C
 To minimize the amount of changes required for moving to this mode over AMCL, we also expose a subscriber to the `/initialpose` topic used by AMCL to relocalize to a position, which also hooks up to the `2D Pose Estimation` tool in RVIZ. This way you can enter localization mode with our approach but continue to use the same API as you expect from AMCL for ease of integration.
 
 In summary, this approach I dub `elastic pose-graph localization` is where we take existing map pose-graphs and localized with-in them with a rolling window of recent scans. This way we can localize in an existing map using the scan matcher, but not update the underlaying map long-term should something go wrong. It can be considered a replacement to AMCL and results is not needing any .pgm maps ever again. The lifelong mapping/continuous slam mode above will do better if you'd like to modify the underlying graph while moving. This method of localization might not be suitable for all applications, it does require quite a bit of tuning for your particular robot and needs high quality odometry. If in doubt, you're always welcome to use other 2D map localizers in the ecosystem like AMCL. For most beginners or users looking for a good out of the box experience, I'd recommend AMCL. 
+
+# Multi-Robot SLAM
+![multirobot_slam](/images/multi-robot_mapping.gif?raw=true "Multi-Robot SLAM")
+
+*multirobot_slam_toolbox_node* extends slam_toolbox for multi-robot mapping and localization. Slam_toolbox instances are run on each robot under unique namespaces and pose graph data are shared between the nodes through */localized_scan* topic. Each slam_toolbox instance publishes transform of host robot and peers in the network. Peer transform frame names are prefixed with the namespace of the peer.
+
+Initially the robots should start close to each other, in the same orientation, as scan matching is used to find the connection between different pose graphs. This however is not required in simulation environments such as gazebo, as all robots' odometry is referenced to a gazebo's global frame. 
+
+![multirobot_slam_architecture](/images/multi-robot_architecture.png?raw=true "Multi-Robot SLAM Node Architecture")
+
+### Running Multi-Robot SLAM with turtlebot3 simulation
+
+Install and launch turtlebot3 multirobot simulation as described in the [navigation2 documentation](https://navigation.ros.org/getting_started/index.html)
+
+```shell
+ros2 launch nav2_bringup multi_tb3_simulation_launch.py headless:=False
+```
+
+In two seperate terminals, launch two *multirobot_slam_toolbox_node* instances for robot1 and robot2.
+
+```shell
+ros2 launch slam_toolbox online_async_multirobot_launch.py namespace:=robot1
+ros2 launch slam_toolbox online_async_multirobot_launch.py namespace:=robot2
+```
+
+In another two seperate terminals, run *teleop_twist_keyboard* to control the robots. The merged map will appear on both rviz windows when moving the robots around in the environment.
+
+```shell
+ros2 run teleop_twist_keyboard teleop_twist_keyboard __ns:=/robot1
+ros2 run teleop_twist_keyboard teleop_twist_keyboard __ns:=/robot2
+```
 
 ## Tools 
 
@@ -191,6 +225,7 @@ The following are the services/topics that are exposed for use. See the rviz plu
 | `/slam_toolbox/save_map`  | `slam_toolbox/SaveMap` | Save the map image file of the pose-graph that is useable for display or AMCL localization. It is a simple wrapper on `map_server/map_saver` but is useful. | 
 | `/slam_toolbox/serialize_map`  | `slam_toolbox/SerializePoseGraph` | Save the map pose-graph and datathat is useable for continued mapping, slam_toolbox localization, offline manipulation, and more | 
 | `/slam_toolbox/toggle_interactive_mode`  | `slam_toolbox/ToggleInteractive` | Toggling in and out of interactive mode, publishing interactive markers of the nodes and their positions to be updated in an application | 
+| `/slam_toolbox/reset`  | `slam_toolbox/Reset` | Reset current map back to the initial state | 
 
 # Configuration
 
@@ -262,6 +297,8 @@ The following settings and options are exposed to you. My default configuration 
 
 `minimum_travel_distance` - Minimum distance of travel before processing a new scan
 
+`localization_on_configure` - Set to true to set the localization mode to localization during node on_configure transition. Set to false to set the localization mode to mapping instead. Only applies to `map_and_localization_slam_toolbox` node.
+
 ## Matcher Params
 
 `use_scan_matching` - whether to use scan matching to refine odometric pose (uh, why would you not?)
@@ -317,10 +354,6 @@ The following settings and options are exposed to you. My default configuration 
 `minimum_distance_penalty` - Smallest penalty a scan can have to ensure the size doesn't blow up
 
 `use_response_expansion` - Whether to automatically increase the search grid size if no viable match is found
-
-`min_pass_through` - Number of beams that must pass through a cell before it will be considered to be occupied or unoccupied. This prevents stray beams from messing up the map.
-
-`occupancy_threshold` - Minimum ratio of beams hitting cell to beams passing through cell to be marked as occupied
 
 # Install
 
